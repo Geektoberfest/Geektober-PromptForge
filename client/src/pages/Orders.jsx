@@ -1,20 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import Footer from '../components/Footer';
+import { Link } from 'react-router-dom';
 import { Sparkles, ArrowRight, ShieldCheck, ShoppingBag } from 'lucide-react';
 
-export default function Orders({ isLoggedIn }) {
-  const navigate = useNavigate();
+export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isLoggedIn) {
-      navigate('/login');
-      return;
-    }
-
     const fetchOrders = async () => {
       try {
         const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
@@ -32,13 +24,11 @@ export default function Orders({ isLoggedIn }) {
     };
 
     fetchOrders();
-  }, [isLoggedIn, navigate]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#070B16] text-white flex flex-col justify-between">
       <div>
-        <Navbar isLoggedIn={isLoggedIn} />
-
         <div className="max-w-5xl mx-auto px-6 py-12">
           <div className="mb-8">
             <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold uppercase tracking-wider mb-2">
@@ -143,8 +133,6 @@ export default function Orders({ isLoggedIn }) {
           )}
         </div>
       </div>
-
-      <Footer />
     </div>
   );
 }

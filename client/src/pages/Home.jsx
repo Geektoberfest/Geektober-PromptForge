@@ -1,15 +1,15 @@
-import Navbar from "../components/Navbar"
+import { useAuth } from '../context/useAuth.js';
 import Info from "../components/Info"
 import Gallery from "../components/Gallery"
-import Footer from "../components/Footer"
 
-export default function Home({isLoggedIn}) {
-    return (
-        <>
-            <Navbar isLoggedIn={isLoggedIn}/>
-            <Info />
-            <Gallery isLoggedIn={isLoggedIn}/>
-            <Footer />
-        </>
-    )
+export default function Home() {
+  const { isLoggedIn } = useAuth();
+
+  return (
+    <>
+      <Info />
+      <Gallery isLoggedIn={isLoggedIn} />
+      <div data-testid="promptforge-home" hidden></div>
+    </>
+  )
 }

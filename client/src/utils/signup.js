@@ -1,6 +1,13 @@
 import toast from 'react-hot-toast';
 
-export default async function handleSignup(event, setIsLoggedIn, navigate) {
+/**
+ * Submits the signup form and hands back the newly created user.
+ * Navigation stays under the caller's control (pure SPA, no full page reload).
+ *
+ * @param {SubmitEvent} event - form submit event (preventDefault applied here)
+ * @returns {Promise<{id: string, username: string, email: string} | null>} user, or null on failure
+ */
+export default async function handleSignup(event) {
   event.preventDefault();
 
   const formData = new FormData(event.target);
@@ -22,21 +29,15 @@ export default async function handleSignup(event, setIsLoggedIn, navigate) {
     const data = await response.json();
 
     if (response.ok && data.status === 'ok') {
-      setIsLoggedIn(true);
       toast.success('Account created! Welcome to PromptForge.');
-      if (navigate) {
-        navigate('/');
-      } else {
-        window.location.href = '/';
-      }
-      return true;
-    } else {
-      toast.error(data.message || 'Signup failed. Please try again.');
-      return false;
+      return data.user || { id: data.user?.id, username: data.user?.username, email: data.user?.email };
     }
+
+    toast.error(data.message || 'Signup failed. Please try again.');
+    return null;
   } catch (error) {
     console.error('Network error during signup:', error);
     toast.error('Network error. Please check your connection.');
-    return false;
+    return null;
   }
 }

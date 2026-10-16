@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import Navbar from '../components/Navbar';
 import Prompt from '../components/Prompt';
-import Footer from '../components/Footer';
-import { getPromptById } from '../utils/getPrompts.js'; 
+import { getPromptById } from '../utils/getPrompts.js';
 
-export default function PromptPage({isLoggedIn}) {
-    const { id } = useParams(); 
+export default function PromptPage() {
+    const { id } = useParams();
     const [promptData, setPromptData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -29,45 +27,33 @@ export default function PromptPage({isLoggedIn}) {
 
     if (isLoading) {
         return (
-            <>
-                <Navbar />
-                <div className="text-center p-10">Loading Prompt...</div>
-                <Footer />
-            </>
+            <div className="text-center p-10 text-white">Loading Prompt...</div>
         );
     }
-    
+
     if (!promptData) {
         return (
-            <>
-                <Navbar />
-                <div className="text-center text-white p-10">Prompt not found or an error occurred.</div>
-                <Footer />
-            </>
+            <div className="text-center text-white p-10">Prompt not found or an error occurred.</div>
         );
     }
 
     return (
-        <>
-            <Navbar isLoggedIn={isLoggedIn}/>
-            <Prompt 
-                id={promptData._id || id}
-                isLoggedIn={isLoggedIn}
-                imageSrc={promptData.imageUrl} 
-                title={promptData.title}
-                description={promptData.description}
-                category={promptData.category}
-                aiModel={promptData.aiModel}
-                pricePaise={promptData.pricePaise}
-                isUnlocked={promptData.isUnlocked}
-                likes={promptData.likes}
-                updatedOn={promptData.updatedAt}
-                promptText={promptData.promptText} 
-                negativePrompt={promptData.negativePrompt}
-                seed={promptData.seed}
-                author={promptData.author || "Anonymous"}
-            />
-            <Footer />
-        </>
+        <Prompt
+            id={promptData._id || id}
+            imageSrc={promptData.imageUrl}
+            title={promptData.title}
+            description={promptData.description}
+            category={promptData.category}
+            aiModel={promptData.aiModel}
+            pricePaise={promptData.pricePaise}
+            isUnlocked={promptData.isUnlocked}
+            likes={promptData.likes}
+            isLiked={promptData.isLiked}
+            updatedOn={promptData.updatedAt}
+            promptText={promptData.promptText}
+            negativePrompt={promptData.negativePrompt}
+            seed={promptData.seed}
+            author={promptData.author || "Anonymous"}
+        />
     );
 }

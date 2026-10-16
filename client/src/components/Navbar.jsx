@@ -1,9 +1,11 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
+import { useAuth } from '../context/useAuth.js';
 
-const Navbar = ({ isLoggedIn }) => {
+const Navbar = () => {
   const navigate = useNavigate();
+  const { isLoggedIn } = useAuth();
 
   function handleUploadClick() {
     if (isLoggedIn) {
@@ -28,12 +30,12 @@ const Navbar = ({ isLoggedIn }) => {
       </div>
 
       <div className="flex items-center space-x-6 text-gray-400 text-sm font-medium">
-        <Link to="/" className="hover:text-white transition">
+        <NavLink to="/" className={({ isActive }) => `hover:text-white transition ${isActive ? 'text-white' : ''}`}>
           Home
-        </Link>
-        <Link to="/explore" className="hover:text-white transition">
+        </NavLink>
+        <NavLink to="/explore" className={({ isActive }) => `hover:text-white transition ${isActive ? 'text-white' : ''}`}>
           Explore
-        </Link>
+        </NavLink>
         <button
           onClick={handleUploadClick}
           className="hover:text-white transition cursor-pointer"
@@ -80,7 +82,6 @@ const Navbar = ({ isLoggedIn }) => {
           </div>
         )}
       </div>
-      <Toaster position="top-center" />
     </nav>
   );
 };

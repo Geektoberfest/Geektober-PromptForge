@@ -1,6 +1,13 @@
-export default async function logout(setStatusMessage, setIsLoggedIn, navigate) {
+/**
+ * Clears the session cookie on the server.
+ * Navigation/context cleanup stays under the caller's control (pure SPA).
+ *
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+export default async function performLogout() {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+
   try {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
     const response = await fetch(`${baseUrl}/users/logout`, {
       method: 'POST',
       credentials: 'include',
@@ -9,24 +16,12 @@ export default async function logout(setStatusMessage, setIsLoggedIn, navigate) 
       },
     });
 
-    if (response.ok) {
-      if (setStatusMessage) setStatusMessage('Successfully logged out.');
-      if (setIsLoggedIn) setIsLoggedIn(false);
-    } else {
-      if (setStatusMessage) setStatusMessage('Logout failed on server, session cleared locally.');
-      if (setIsLoggedIn) setIsLoggedIn(false);
-    }
+    return {
+      ok: response.ok,
+      message: response.ok ? 'Successfully logged out.' : 'Logout failed on server, session cleared locally.',
+    };
   } catch (error) {
     console.warn('Logout network error:', error);
-    if (setStatusMessage) setStatusMessage('Network error occurred. Session cleared locally.');
-    if (setIsLoggedIn) setIsLoggedIn(false);
-  } finally {
-    setTimeout(() => {
-      if (navigate) {
-        navigate('/');
-      } else {
-        window.location.href = '/';
-      }
-    }, 1000);
+    return { ok: false, message: 'Network error occurred. Session cleared locally.' };
   }
 }

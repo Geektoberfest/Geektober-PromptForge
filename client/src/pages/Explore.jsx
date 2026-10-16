@@ -1,13 +1,9 @@
-import Navbar from '../components/Navbar';
 import ExploreGallery from '../components/ExploreGallery';
-import Footer from '../components/Footer';
 
-export default function Explore({ isLoggedIn }) {
+export default function Explore() {
   return (
     <>
-      <Navbar isLoggedIn={isLoggedIn} />
-      <ExploreGallery isLoggedIn={isLoggedIn} />
-      <Footer />
+      <ExploreGallery />
     </>
   );
 }

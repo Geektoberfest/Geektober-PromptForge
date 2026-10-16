@@ -1,22 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import Footer from '../components/Footer';
+import { Link } from 'react-router-dom';
 import { TrendingUp, IndianRupee, ShoppingBag, Heart, Star, PlusCircle, ArrowUpRight } from 'lucide-react';
 
-export default function CreatorDashboard({ isLoggedIn }) {
-  const navigate = useNavigate();
+export default function CreatorDashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [prompts, setPrompts] = useState([]);
   const [recentSales, setRecentSales] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isLoggedIn) {
-      navigate('/login');
-      return;
-    }
-
     const fetchCreatorData = async () => {
       try {
         const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
@@ -38,13 +30,11 @@ export default function CreatorDashboard({ isLoggedIn }) {
     };
 
     fetchCreatorData();
-  }, [isLoggedIn, navigate]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#070B16] text-white flex flex-col justify-between">
       <div>
-        <Navbar isLoggedIn={isLoggedIn} />
-
         <div className="max-w-6xl mx-auto px-6 py-10">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
@@ -214,8 +204,6 @@ export default function CreatorDashboard({ isLoggedIn }) {
           )}
         </div>
       </div>
-
-      <Footer />
     </div>
   );
 }

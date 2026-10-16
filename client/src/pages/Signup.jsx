@@ -1,9 +1,25 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import signup from '../utils/signup';
+import signupUtil from '../utils/signup';
+import { useAuth } from '../context/useAuth.js';
 
-const Signup = ({ setIsLoggedIn }) => {
+const Signup = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
+
+  // Restore the originally requested route after a successful signup.
+  const from = location.state?.from?.pathname;
+  const redirectPath = from && from.startsWith('/') && !from.startsWith('//') ? from : '/';
+
+  const handleSubmit = async (e) => {
+    const user = await signupUtil(e);
+    if (user) {
+      // Adopt the session in shared state, then navigate (pure SPA).
+      login(user);
+      navigate(redirectPath, { replace: true });
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#050A1A] text-white px-4">
@@ -16,7 +32,7 @@ const Signup = ({ setIsLoggedIn }) => {
         </div>
 
         <form
-          onSubmit={(e) => signup(e, setIsLoggedIn, navigate)}
+          onSubmit={handleSubmit}
           className="space-y-4"
         >
           <div>

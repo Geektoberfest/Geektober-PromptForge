@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import createPost from '../utils/createPost.js';
-import Navbar from '../components/Navbar.jsx';
 
-export default function Upload({ isLoggedIn }) {
+export default function Upload() {
   const navigate = useNavigate();
   const [preview, setPreview] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,33 +46,8 @@ export default function Upload({ isLoggedIn }) {
     }
   };
 
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-[#0e111b] flex flex-col items-center justify-center p-6 text-white">
-        <div className="bg-[#111827] w-full max-w-md p-10 rounded-2xl shadow-xl border border-white/5 text-center space-y-6">
-          <h2 className="text-3xl font-semibold mb-2">Creator Access Required</h2>
-          <p className="text-gray-400 text-base">You must be logged in to list and monetize prompts.</p>
-          <Link
-            to="/login"
-            className="block w-full bg-[#5b85f9] hover:bg-[#6d92ff] text-white font-medium py-3 rounded-xl transition"
-          >
-            Go to Login
-          </Link>
-          <p className="text-sm text-gray-400">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-[#5b85f9] hover:underline font-medium">
-              Sign up
-            </Link>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-[#0A0F1E] text-white pb-16">
-      <Navbar isLoggedIn={isLoggedIn} />
-
+    <div className="min-h-screen text-white pb-16">
       <div className="max-w-5xl mx-auto px-6 mt-8">
         <form
           onSubmit={handleSubmit}

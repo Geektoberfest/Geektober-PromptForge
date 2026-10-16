@@ -15,9 +15,11 @@ import toast, { Toaster } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { initiateCheckout } from '../utils/razorpay';
 import { updateLike } from '../utils/like';
+import { useAuth } from '../context/useAuth.js';
 
 const Prompt = (props) => {
   const navigate = useNavigate();
+  const { isLoggedIn } = useAuth();
   const [isUnlocked, setIsUnlocked] = useState(props.isUnlocked || false);
   const [currentPromptText, setCurrentPromptText] = useState(props.promptText || '');
   const [negativePrompt, setNegativePrompt] = useState(props.negativePrompt || '');
@@ -85,7 +87,7 @@ const Prompt = (props) => {
   };
 
   const handleLike = async () => {
-    if (!props.isLoggedIn) {
+    if (!isLoggedIn) {
       toast.error('Log in to like prompts!');
       setTimeout(() => navigate('/login'), 800);
       return;
@@ -105,7 +107,7 @@ const Prompt = (props) => {
   };
 
   const handleBuyPrompt = () => {
-    if (!props.isLoggedIn) {
+    if (!isLoggedIn) {
       toast.error('Please log in to purchase and unlock prompts');
       setTimeout(() => navigate('/login'), 800);
       return;
@@ -369,7 +371,7 @@ const Prompt = (props) => {
         </div>
 
         {/* Submit Review Form if unlocked */}
-        {isUnlocked && props.isLoggedIn && (
+        {isUnlocked && isLoggedIn && (
           <form
             onSubmit={handleReviewSubmit}
             className="mb-8 p-5 bg-[#0B1120] rounded-2xl border border-white/5 space-y-4"

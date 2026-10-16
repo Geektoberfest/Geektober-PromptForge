@@ -1,14 +1,43 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import logout from '../utils/logout';
+import { Toaster } from 'react-hot-toast';
+import performLogout from '../utils/logout';
+import { useAuth } from '../context/useAuth.js';
 
-export default function LogOut({ setIsLoggedIn }) {
+export default function LogOut() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
+  const hasLoggedOutRef = useRef(false);
   const [statusMessage, setStatusMessage] = useState('Logging out...');
 
   useEffect(() => {
-    logout(setStatusMessage, setIsLoggedIn, navigate);
-  }, [setIsLoggedIn, navigate]);
+    if (hasLoggedOutRef.current) return;
+    hasLoggedOutRef.current = true;
+
+    let isMounted = true;
+
+    (async () => {
+      const { message } = await performLogout();
+
+      if (!isMounted) return;
+
+      // Clear the shared session immediately so guards react right away.
+      logout();
+      setStatusMessage(message);
+
+      const timer = setTimeout(() => {
+        if (isMounted) {
+          navigate('/', { replace: true });
+        }
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [logout, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#050A1A] text-white p-4">
@@ -22,6 +51,7 @@ export default function LogOut({ setIsLoggedIn }) {
         <h2 className="text-xl font-semibold text-gray-200">{statusMessage}</h2>
         <p className="text-sm text-gray-500 mt-2">Redirecting to PromptForge home...</p>
       </div>
+      <Toaster position="top-center" />
     </div>
   );
 }
