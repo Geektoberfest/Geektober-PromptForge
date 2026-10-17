@@ -2,14 +2,30 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
-import { TrendingUp, IndianRupee, ShoppingBag, Heart, Star, PlusCircle, ArrowUpRight } from 'lucide-react';
+import {
+  TrendingUp,
+  IndianRupee,
+  ShoppingBag,
+  Heart,
+  Star,
+  PlusCircle,
+  ArrowUpRight,
+  Download,
+  Loader2,
+  Calendar,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function CreatorDashboard({ isLoggedIn }) {
   const navigate = useNavigate();
   const [analytics, setAnalytics] = useState(null);
+  const [timeSeries, setTimeSeries] = useState([]);
   const [prompts, setPrompts] = useState([]);
   const [recentSales, setRecentSales] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [days] = useState(30);
+  const [hoveredPoint, setHoveredPoint] = useState(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -20,15 +36,28 @@ export default function CreatorDashboard({ isLoggedIn }) {
     const fetchCreatorData = async () => {
       try {
         const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
-        const response = await fetch(`${baseUrl}/creator/analytics`, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        const data = await response.json();
-        if (data.success) {
-          setAnalytics(data.analytics);
-          setPrompts(data.prompts || []);
-          setRecentSales(data.recentSales || []);
+
+        const [analyticsRes, timeSeriesRes] = await Promise.all([
+          fetch(`${baseUrl}/creator/analytics`, {
+            method: 'GET',
+            credentials: 'include',
+          }),
+          fetch(`${baseUrl}/creator/analytics/time-series?days=${days}`, {
+            method: 'GET',
+            credentials: 'include',
+          }),
+        ]);
+
+        const analyticsData = await analyticsRes.json();
+        if (analyticsData.success) {
+          setAnalytics(analyticsData.analytics);
+          setPrompts(analyticsData.prompts || []);
+          setRecentSales(analyticsData.recentSales || []);
+        }
+
+        const timeSeriesData = await timeSeriesRes.json();
+        if (timeSeriesData.success) {
+          setTimeSeries(timeSeriesData.timeSeries || timeSeriesData.data || []);
         }
       } catch (err) {
         console.error('Failed to load creator analytics:', err);
@@ -38,7 +67,77 @@ export default function CreatorDashboard({ isLoggedIn }) {
     };
 
     fetchCreatorData();
-  }, [isLoggedIn, navigate]);
+  }, [isLoggedIn, navigate, days]);
+
+  const handleDownloadCSV = async () => {
+    try {
+      setIsExporting(true);
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+      const response = await fetch(`${baseUrl}/creator/analytics/export`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate export');
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `promptforge-creator-statement-${new Date().toISOString().slice(0, 10)}.csv`;
+      if (disposition && disposition.includes('filename=')) {
+        const matches = disposition.match(/filename="?([^"]+)"?/);
+        if (matches && matches[1]) {
+          filename = matches[1];
+        }
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Statement downloaded successfully');
+    } catch (err) {
+      console.error('Download statement error:', err);
+      toast.error('Failed to download statement');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Helper values for rendering SVG revenue curve
+  const chartWidth = 720;
+  const chartHeight = 160;
+  const paddingX = 40;
+  const paddingTop = 25;
+  const paddingBottom = 30;
+
+  const maxRevenueInr = Math.max(
+    ...timeSeries.map((p) => Number(p.dailyRevenueInr) || 0),
+    10
+  );
+
+  const points = timeSeries.map((p, i) => {
+    const x =
+      paddingX +
+      (timeSeries.length > 1 ? (i / (timeSeries.length - 1)) * (chartWidth - paddingX * 2) : 0);
+    const val = Number(p.dailyRevenueInr) || 0;
+    const y = paddingTop + (1 - val / maxRevenueInr) * chartHeight;
+    return { ...p, x, y, val };
+  });
+
+  const linePathD = points.reduce((acc, pt, i) => {
+    return `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
+  }, '');
+
+  const areaPathD =
+    points.length > 0
+      ? `${linePathD} L ${points[points.length - 1].x.toFixed(1)} ${(paddingTop + chartHeight).toFixed(1)} L ${points[0].x.toFixed(1)} ${(paddingTop + chartHeight).toFixed(1)} Z`
+      : '';
 
   return (
     <div className="min-h-screen bg-[#070B16] text-white flex flex-col justify-between">
@@ -59,13 +158,30 @@ export default function CreatorDashboard({ isLoggedIn }) {
               </p>
             </div>
 
-            <Link
-              to="/upload"
-              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition shadow-lg shadow-blue-500/25 self-start sm:self-auto"
-            >
-              <PlusCircle size={16} />
-              <span>List New Prompt</span>
-            </Link>
+            <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+              <button
+                type="button"
+                onClick={handleDownloadCSV}
+                disabled={isExporting}
+                className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#10172A] hover:bg-[#1E293B] border border-white/10 text-white font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed shadow-md"
+                title="Download official statement in CSV format"
+              >
+                {isExporting ? (
+                  <Loader2 size={16} className="animate-spin text-blue-400" />
+                ) : (
+                  <Download size={16} className="text-blue-400" />
+                )}
+                <span>{isExporting ? 'Generating...' : 'Download Statement (CSV)'}</span>
+              </button>
+
+              <Link
+                to="/upload"
+                className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition shadow-lg shadow-blue-500/25"
+              >
+                <PlusCircle size={16} />
+                <span>List New Prompt</span>
+              </Link>
+            </div>
           </div>
 
           {isLoading ? (
@@ -73,7 +189,7 @@ export default function CreatorDashboard({ isLoggedIn }) {
           ) : (
             <>
               {/* Metric Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
                 <div className="bg-[#10172A] p-6 rounded-2xl border border-white/10 shadow-lg">
                   <div className="flex items-center justify-between text-gray-400 mb-2">
                     <span className="text-xs font-semibold uppercase tracking-wider">Withdrawable Net</span>
@@ -122,6 +238,149 @@ export default function CreatorDashboard({ isLoggedIn }) {
                 </div>
               </div>
 
+              {/* Time-Series 30-Day Revenue Trend Chart */}
+              <div className="bg-[#111827] rounded-2xl border border-white/10 p-6 mb-10 shadow-xl relative overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <TrendingUp size={18} className="text-[#4F7FFF]" />
+                      <h2 className="text-lg font-bold text-white">30-Day Revenue & Sales Curve</h2>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Daily gross revenue aggregation in INR with continuous zero-filled trendline.
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300">
+                    <Calendar size={13} className="text-[#4F7FFF]" />
+                    <span>Past 30 Days</span>
+                  </div>
+                </div>
+
+                {/* SVG Chart Container */}
+                <div className="w-full relative">
+                  {hoveredPoint && (
+                    <div
+                      className="absolute z-10 pointer-events-none -top-2 transform -translate-x-1/2 -translate-y-full bg-[#1F2937] border border-[#4F7FFF]/40 rounded-xl px-3 py-2 shadow-2xl text-xs"
+                      style={{
+                        left: `${(hoveredPoint.x / chartWidth) * 100}%`,
+                      }}
+                    >
+                      <div className="font-semibold text-white mb-0.5">{hoveredPoint.date}</div>
+                      <div className="text-[#4F7FFF] font-bold">
+                        ₹{Number(hoveredPoint.dailyRevenueInr || 0).toFixed(2)} gross
+                      </div>
+                      <div className="text-emerald-400 text-[11px]">
+                        ₹{Number(hoveredPoint.dailyNetEarningsInr || 0).toFixed(2)} net
+                      </div>
+                      <div className="text-gray-400 text-[11px]">
+                        {hoveredPoint.unitsSold} {hoveredPoint.unitsSold === 1 ? 'unit' : 'units'} sold
+                      </div>
+                    </div>
+                  )}
+
+                  <svg
+                    viewBox={`0 0 ${chartWidth} ${chartHeight + paddingTop + paddingBottom}`}
+                    className="w-full h-56 overflow-visible"
+                  >
+                    <defs>
+                      <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#4F7FFF" stopOpacity="0.4" />
+                        <stop offset="90%" stopColor="#4F7FFF" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Horizontal Grid Lines */}
+                    {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                      const y = paddingTop + chartHeight * (1 - ratio);
+                      return (
+                        <g key={ratio}>
+                          <line
+                            x1={paddingX}
+                            y1={y}
+                            x2={chartWidth - paddingX}
+                            y2={y}
+                            stroke="rgba(255, 255, 255, 0.07)"
+                            strokeDasharray="4 4"
+                          />
+                          <text
+                            x={paddingX - 8}
+                            y={y + 4}
+                            textAnchor="end"
+                            fontSize="10"
+                            fill="rgba(156, 163, 175, 0.7)"
+                          >
+                            ₹{(maxRevenueInr * ratio).toFixed(0)}
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Gradient Area Fill */}
+                    {areaPathD && <path d={areaPathD} fill="url(#areaGradient)" />}
+
+                    {/* Revenue Curve Line */}
+                    {linePathD && (
+                      <path
+                        d={linePathD}
+                        fill="none"
+                        stroke="#4F7FFF"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+
+                    {/* Interactive Data Points and Hover Triggers */}
+                    {points.map((pt, i) => {
+                      const isHovered = hoveredPoint?.date === pt.date;
+                      return (
+                        <g key={pt.date || i}>
+                          {/* Visible point circle */}
+                          <circle
+                            cx={pt.x}
+                            cy={pt.y}
+                            r={isHovered ? 5.5 : pt.val > 0 ? 3.5 : 2}
+                            fill={isHovered ? '#60A5FA' : '#4F7FFF'}
+                            stroke="#111827"
+                            strokeWidth="2"
+                            className="transition-all duration-150"
+                          />
+
+                          {/* Invisible hover trigger */}
+                          <rect
+                            x={pt.x - (chartWidth / points.length) / 2}
+                            y={paddingTop}
+                            width={chartWidth / points.length}
+                            height={chartHeight}
+                            fill="transparent"
+                            className="cursor-pointer"
+                            onMouseEnter={() => setHoveredPoint(pt)}
+                            onMouseLeave={() => setHoveredPoint(null)}
+                          />
+
+                          {/* X-axis date labels for intervals */}
+                          {(i === 0 ||
+                            i === Math.floor(points.length / 4) ||
+                            i === Math.floor(points.length / 2) ||
+                            i === Math.floor((points.length * 3) / 4) ||
+                            i === points.length - 1) && (
+                            <text
+                              x={pt.x}
+                              y={paddingTop + chartHeight + 18}
+                              textAnchor="middle"
+                              fontSize="10"
+                              fill="rgba(156, 163, 175, 0.7)"
+                            >
+                              {pt.date?.slice(5)}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+
               {/* Listings Performance Table */}
               <div className="bg-[#10172A] rounded-2xl border border-white/10 p-6 mb-10 shadow-xl">
                 <h2 className="text-xl font-bold mb-4">Prompt Performance & Earnings</h2>
@@ -165,7 +424,7 @@ export default function CreatorDashboard({ isLoggedIn }) {
                             </td>
                             <td className="py-3.5 px-4 flex items-center space-x-1 text-amber-400">
                               <Star size={13} className="fill-amber-400" />
-                              <span>{p.averageRating || '—'}</span>
+                              <span>{p.averageRating || 'N/A'}</span>
                               <span className="text-gray-500 text-xs">({p.reviewsCount})</span>
                             </td>
                             <td className="py-3.5 px-4 text-right">
