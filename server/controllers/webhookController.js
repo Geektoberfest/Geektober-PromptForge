@@ -1,8 +1,10 @@
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import Order from '../models/order.js';
 import Prompt from '../models/prompt.js';
 import Entitlement from '../models/entitlement.js';
 import Users from '../models/user.js';
+import Ledger from '../models/ledger.js';
 import eventBus from '../utils/eventBus.js';
 
 export async function handleRazorpayWebhook(req, res) {
@@ -48,39 +50,119 @@ export async function handleRazorpayWebhook(req, res) {
       const razorpayPaymentId = paymentEntity?.id;
 
       if (razorpayOrderId) {
-        const order = await Order.findOne({ razorpayOrderId });
+        const maxRetries = 3;
+        let order;
+        let prompt;
+        let alreadyProcessed = false;
+        let notFound = false;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          const session = await mongoose.startSession();
+          session.startTransaction();
+
+          try {
+            const updateSet = {
+              status: 'PAID',
+              paidAt: new Date(),
+            };
+            if (razorpayPaymentId) {
+              updateSet.razorpayPaymentId = razorpayPaymentId;
+            }
+
+            order = await Order.findOneAndUpdate(
+              { razorpayOrderId, status: { $ne: 'PAID' } },
+              { $set: updateSet },
+              { new: true, session }
+            );
+
+            if (!order) {
+              const existingOrder = await Order.findOne({ razorpayOrderId }).session(session);
+              await session.commitTransaction();
+
+              if (existingOrder && existingOrder.status === 'PAID') {
+                alreadyProcessed = true;
+                break;
+              }
+              notFound = true;
+              break;
+            }
+
+            // Ensure entitlement is provisioned atomically
+            await Entitlement.findOneAndUpdate(
+              { userId: order.buyerId, promptId: order.promptId },
+              { orderId: order._id, grantedAt: new Date() },
+              { upsert: true, new: true, session }
+            );
+
+            prompt = await Prompt.findByIdAndUpdate(
+              order.promptId,
+              { $inc: { salesCount: 1 } },
+              { new: true, session }
+            );
+
+            // Settle creator balance and record immutable accounting ledger entry
+            if (order.sellerId && order.amountPaise > 0) {
+              const seller = await Users.findById(order.sellerId).session(session);
+              if (!seller) {
+                throw new Error(`Seller user ${order.sellerId} not found`);
+              }
+
+              const platformFeePaise = Math.round(order.amountPaise * 0.1);
+              const netCreatorPaise = Math.round(order.amountPaise * 0.9);
+              const updatedBalance = (seller.creatorBalancePaise || 0) + netCreatorPaise;
+
+              await Users.findByIdAndUpdate(
+                order.sellerId,
+                { $inc: { creatorBalancePaise: netCreatorPaise } },
+                { session }
+              );
+
+              await Ledger.create(
+                [
+                  {
+                    userId: order.sellerId,
+                    orderId: order._id,
+                    type: 'CREDIT_SALE',
+                    grossAmountPaise: order.amountPaise,
+                    platformFeePaise,
+                    netAmountPaise: netCreatorPaise,
+                    balanceAfterPaise: updatedBalance,
+                    createdAt: new Date(),
+                  },
+                ],
+                { session }
+              );
+            }
+
+            await session.commitTransaction();
+            break;
+          } catch (err) {
+            await session.abortTransaction();
+            const isTransient =
+              err.hasErrorLabel?.('TransientTransactionError') ||
+              (err.errorLabels && err.errorLabels.has && err.errorLabels.has('TransientTransactionError')) ||
+              err.code === 112 ||
+              err.codeName === 'WriteConflict';
+
+            if (isTransient && attempt < maxRetries) {
+              await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+              continue;
+            }
+            throw err;
+          } finally {
+            session.endSession();
+          }
+        }
+
+        if (alreadyProcessed) {
+          return res.status(200).json({ status: 'already_processed' });
+        }
+
+        if (notFound) {
+          return res.status(200).json({ status: 'success' });
+        }
 
         if (order) {
-          // Idempotency check: if already PAID, do nothing
-          if (order.status === 'PAID') {
-            return res.status(200).json({ status: 'already_processed' });
-          }
-
-          order.status = 'PAID';
-          order.razorpayPaymentId = razorpayPaymentId || order.razorpayPaymentId;
-          order.paidAt = new Date();
-          await order.save();
-
-          // Ensure entitlement is provisioned
-          await Entitlement.findOneAndUpdate(
-            { userId: order.buyerId, promptId: order.promptId },
-            { orderId: order._id, grantedAt: new Date() },
-            { upsert: true, new: true }
-          );
-
-          const prompt = await Prompt.findByIdAndUpdate(
-            order.promptId,
-            { $inc: { salesCount: 1 } },
-            { new: true }
-          );
-
-          if (order.sellerId && order.amountPaise > 0) {
-            const netCreatorPaise = Math.round(order.amountPaise * 0.9);
-            await Users.findByIdAndUpdate(order.sellerId, {
-              $inc: { creatorBalancePaise: netCreatorPaise },
-            });
-          }
-
           eventBus.broadcastToUser(order.buyerId, {
             event: 'PAYMENT_SUCCESS',
             data: {

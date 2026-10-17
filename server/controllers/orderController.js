@@ -3,6 +3,7 @@ import Prompt from '../models/prompt.js';
 import Users from '../models/user.js';
 import Order from '../models/order.js';
 import Entitlement from '../models/entitlement.js';
+import Ledger from '../models/ledger.js';
 import { createRazorpayOrder, verifyRazorpaySignature } from '../config/razorpay.js';
 import eventBus from '../utils/eventBus.js';
 
@@ -146,54 +147,136 @@ export async function verifyPayment(req, res) {
       return res.status(400).json({ success: false, message: 'Cryptographic signature verification failed' });
     }
 
-    // Retrieve order
-    const order = await Order.findOne({ razorpayOrderId: razorpay_order_id });
-    if (!order) {
+    const maxRetries = 3;
+    let order;
+    let prompt;
+    let alreadyFulfilledResponse = null;
+    let notFound = false;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const session = await mongoose.startSession();
+      session.startTransaction();
+
+      try {
+        // Concurrency locking: atomically transition order from non-PAID to PAID
+        const updateSet = {
+          status: 'PAID',
+          paidAt: new Date(),
+        };
+        if (razorpay_payment_id) {
+          updateSet.razorpayPaymentId = razorpay_payment_id;
+        }
+        if (razorpay_signature) {
+          updateSet.razorpaySignature = razorpay_signature;
+        }
+
+        order = await Order.findOneAndUpdate(
+          { razorpayOrderId: razorpay_order_id, status: { $ne: 'PAID' } },
+          { $set: updateSet },
+          { new: true, session }
+        );
+
+        if (!order) {
+          const existingOrder = await Order.findOne({ razorpayOrderId: razorpay_order_id }).session(session);
+          await session.commitTransaction();
+
+          if (existingOrder && existingOrder.status === 'PAID') {
+            const existingPrompt = await Prompt.findById(existingOrder.promptId);
+            alreadyFulfilledResponse = {
+              success: true,
+              message: 'Order already fulfilled',
+              fullPromptText: existingPrompt?.fullPromptText,
+              negativePrompt: existingPrompt?.negativePrompt,
+              seed: existingPrompt?.seed,
+            };
+            break;
+          }
+
+          notFound = true;
+          break;
+        }
+
+        prompt = await Prompt.findById(order.promptId).session(session);
+        if (!prompt) {
+          throw new Error('Associated prompt not found');
+        }
+
+        // Provision entitlement record atomically
+        await Entitlement.findOneAndUpdate(
+          { userId: buyerId, promptId: prompt._id },
+          { orderId: order._id, grantedAt: new Date() },
+          { upsert: true, new: true, session }
+        );
+
+        // Increment prompt sales count atomically
+        await Prompt.findByIdAndUpdate(
+          prompt._id,
+          { $inc: { salesCount: 1 } },
+          { session }
+        );
+
+        // Settle creator balance and record immutable accounting ledger entry
+        if (order.sellerId && order.amountPaise > 0) {
+          const seller = await Users.findById(order.sellerId).session(session);
+          if (!seller) {
+            throw new Error(`Seller user ${order.sellerId} not found`);
+          }
+
+          const platformFeePaise = Math.round(order.amountPaise * 0.1);
+          const netCreatorPaise = Math.round(order.amountPaise * 0.9);
+          const updatedBalance = (seller.creatorBalancePaise || 0) + netCreatorPaise;
+
+          await Users.findByIdAndUpdate(
+            order.sellerId,
+            { $inc: { creatorBalancePaise: netCreatorPaise } },
+            { session }
+          );
+
+          await Ledger.create(
+            [
+              {
+                userId: order.sellerId,
+                orderId: order._id,
+                type: 'CREDIT_SALE',
+                grossAmountPaise: order.amountPaise,
+                platformFeePaise,
+                netAmountPaise: netCreatorPaise,
+                balanceAfterPaise: updatedBalance,
+                createdAt: new Date(),
+              },
+            ],
+            { session }
+          );
+        }
+
+        await session.commitTransaction();
+        break;
+      } catch (err) {
+        await session.abortTransaction();
+        const isTransient =
+          err.hasErrorLabel?.('TransientTransactionError') ||
+          (err.errorLabels && err.errorLabels.has && err.errorLabels.has('TransientTransactionError')) ||
+          err.code === 112 ||
+          err.codeName === 'WriteConflict';
+
+        if (isTransient && attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+          continue;
+        }
+        throw err;
+      } finally {
+        session.endSession();
+      }
+    }
+
+    if (alreadyFulfilledResponse) {
+      return res.status(200).json(alreadyFulfilledResponse);
+    }
+
+    if (notFound) {
       return res.status(404).json({ success: false, message: 'Associated order not found' });
     }
 
-    const prompt = await Prompt.findById(order.promptId);
-    if (!prompt) {
-      return res.status(404).json({ success: false, message: 'Prompt not found' });
-    }
-
-    // Idempotency: If already fulfilled, return success immediately
-    if (order.status === 'PAID') {
-      return res.status(200).json({
-        success: true,
-        message: 'Order already fulfilled',
-        fullPromptText: prompt.fullPromptText,
-        negativePrompt: prompt.negativePrompt,
-        seed: prompt.seed,
-      });
-    }
-
-    // Atomic fulfillment
-    order.status = 'PAID';
-    order.razorpayPaymentId = razorpay_payment_id;
-    order.razorpaySignature = razorpay_signature;
-    order.paidAt = new Date();
-    await order.save();
-
-    // Create Entitlement record
-    await Entitlement.findOneAndUpdate(
-      { userId: buyerId, promptId: prompt._id },
-      { orderId: order._id, grantedAt: new Date() },
-      { upsert: true, new: true }
-    );
-
-    // Increment sales count
-    await Prompt.findByIdAndUpdate(prompt._id, { $inc: { salesCount: 1 } });
-
-    // Credit creator's balance (90% net earnings after 10% platform fee)
-    if (order.sellerId && order.amountPaise > 0) {
-      const netCreatorPaise = Math.round(order.amountPaise * 0.9);
-      await Users.findByIdAndUpdate(order.sellerId, {
-        $inc: { creatorBalancePaise: netCreatorPaise },
-      });
-    }
-
-    // Broadcast real-time PAYMENT_SUCCESS event via eventBus
     eventBus.broadcastToUser(buyerId, {
       event: 'PAYMENT_SUCCESS',
       data: {
